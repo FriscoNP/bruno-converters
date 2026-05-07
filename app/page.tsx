@@ -1,12 +1,13 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { load as parseYaml } from "js-yaml";
 import insomniaToBruno from "@usebruno/converters/src/insomnia/insomnia-to-bruno";
 import openApiToBruno from "@usebruno/converters/src/openapi/openapi-to-bruno";
 import wsdlToBruno from "@usebruno/converters/src/wsdl/wsdl-to-bruno";
 
 type SourceType = "postman" | "insomnia" | "openapi" | "wsdl";
+type Theme = "light" | "dark";
 
 const sourceOptions: Array<{ label: string; value: SourceType }> = [
   { label: "Postman collection", value: "postman" },
@@ -41,6 +42,20 @@ function readSpecObject(rawInput: string, sourceType: SourceType) {
 
 export default function Home() {
   const [sourceType, setSourceType] = useState<SourceType>("postman");
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") {
+      return "dark";
+    }
+
+    const savedTheme = window.localStorage.getItem("theme");
+    if (savedTheme === "light" || savedTheme === "dark") {
+      return savedTheme;
+    }
+
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  });
   const [fileName, setFileName] = useState<string>("");
   const [rawInput, setRawInput] = useState<string>("");
   const [output, setOutput] = useState<string>("");
@@ -48,6 +63,11 @@ export default function Home() {
   const [isConverting, setIsConverting] = useState<boolean>(false);
 
   const canConvert = useMemo(() => rawInput.trim().length > 0, [rawInput]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    window.localStorage.setItem("theme", theme);
+  }, [theme]);
 
   const onFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -127,24 +147,31 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1e1e2e] text-[#cdd6f4]">
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
-        <header className="rounded-2xl border border-[#45475a] bg-[#181825]/80 p-6">
-          <h1 className="text-2xl font-semibold">Bruno Converters Dashboard</h1>
-          <p className="mt-2 text-sm text-[#bac2de]">
-            Convert Postman, Insomnia, OpenAPI, or WSDL to Bruno collection JSON.
-            Insomnia/OpenAPI/WSDL run client-side, while Postman uses a server
-            fallback due to package runtime constraints.
-          </p>
+    <div className="min-h-screen">
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 md:px-6 md:py-8">
+        <header className="panel flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold md:text-2xl">Bruno Converters</h1>
+            <p className="muted-text mt-1 text-sm">
+              Convert Postman, Insomnia, OpenAPI, and WSDL to Bruno collections.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          >
+            {theme === "dark" ? "Switch to Light" : "Switch to Dark"}
+          </button>
         </header>
 
-        <section className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-2xl border border-[#45475a] bg-[#181825]/80 p-5">
+        <section className="grid gap-4 md:grid-cols-2">
+          <div className="panel">
             <label className="mb-2 block text-sm font-medium">Source type</label>
             <select
               value={sourceType}
               onChange={(event) => setSourceType(event.target.value as SourceType)}
-              className="w-full rounded-lg border border-[#585b70] bg-[#11111b] px-3 py-2 text-sm text-[#cdd6f4]"
+              className="input-field w-full px-3 py-2 text-sm"
             >
               {sourceOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -159,7 +186,7 @@ export default function Home() {
             <input
               type="file"
               onChange={onFileChange}
-              className="w-full rounded-lg border border-[#585b70] bg-[#11111b] px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[#cba6f7] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[#1e1e2e] hover:file:bg-[#b4befe]"
+              className="input-field w-full px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[var(--accent)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--base)] hover:file:opacity-90"
             />
 
             <label className="mt-4 mb-2 block text-sm font-medium">
@@ -169,7 +196,7 @@ export default function Home() {
               value={rawInput}
               onChange={(event) => setRawInput(event.target.value)}
               placeholder="Paste JSON, YAML, or WSDL content here..."
-              className="h-72 w-full rounded-lg border border-[#585b70] bg-[#11111b] px-3 py-2 text-xs leading-5 text-[#cdd6f4]"
+              className="input-field h-64 w-full px-3 py-2 text-xs leading-5"
             />
 
             <div className="mt-4 flex gap-3">
@@ -177,7 +204,7 @@ export default function Home() {
                 type="button"
                 onClick={convertToBruno}
                 disabled={!canConvert || isConverting}
-                className="rounded-lg bg-[#89b4fa] px-4 py-2 text-sm font-medium text-[#1e1e2e] disabled:cursor-not-allowed disabled:bg-[#6c7086] disabled:text-[#bac2de]"
+                className="btn btn-primary"
               >
                 {isConverting ? "Converting..." : "Convert to Bruno"}
               </button>
@@ -189,27 +216,27 @@ export default function Home() {
                   setOutput("");
                   setError("");
                 }}
-                className="rounded-lg border border-[#585b70] bg-[#313244] px-4 py-2 text-sm font-medium text-[#cdd6f4] hover:bg-[#45475a]"
+                className="btn btn-secondary"
               >
                 Reset
               </button>
             </div>
 
             {error ? (
-              <p className="mt-4 rounded-md border border-[#f38ba8]/40 bg-[#f38ba8]/10 p-3 text-sm text-[#f38ba8]">
+              <p className="error-box mt-4 p-3 text-sm">
                 {error}
               </p>
             ) : null}
           </div>
 
-          <div className="rounded-2xl border border-[#45475a] bg-[#181825]/80 p-5">
+          <div className="panel">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Bruno collection output</h2>
               <button
                 type="button"
                 onClick={downloadOutput}
                 disabled={!output}
-                className="rounded-lg bg-[#a6e3a1] px-3 py-1.5 text-xs font-medium text-[#1e1e2e] disabled:cursor-not-allowed disabled:bg-[#6c7086] disabled:text-[#bac2de]"
+                className="btn btn-success px-3 py-1.5 text-xs"
               >
                 Download JSON
               </button>
@@ -218,10 +245,14 @@ export default function Home() {
               value={output}
               readOnly
               placeholder="Converted Bruno collection JSON will appear here..."
-              className="h-[34rem] w-full rounded-lg border border-[#585b70] bg-[#11111b] px-3 py-2 text-xs leading-5 text-[#cdd6f4]"
+              className="input-field h-[28rem] w-full px-3 py-2 text-xs leading-5"
             />
           </div>
         </section>
+
+        <footer className="muted-text py-2 text-center text-xs">
+          Built by FriscoNP using Next.js and Bruno Converters.
+        </footer>
       </main>
     </div>
   );

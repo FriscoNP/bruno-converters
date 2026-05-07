@@ -1,8 +1,27 @@
 @import "tailwindcss";
 
 :root {
-  --background: #1e1e2e;
-  --foreground: #cdd6f4;
+  --base: #eff1f5;
+  --mantle: #e6e9ef;
+  --surface: #ccd0da;
+  --text: #4c4f69;
+  --subtext: #6c6f85;
+  --accent: #1e66f5;
+  --success: #40a02b;
+  --danger: #d20f39;
+  --background: var(--base);
+  --foreground: var(--text);
+}
+
+:root[data-theme="dark"] {
+  --base: #1e1e2e;
+  --mantle: #181825;
+  --surface: #313244;
+  --text: #cdd6f4;
+  --subtext: #bac2de;
+  --accent: #89b4fa;
+  --success: #a6e3a1;
+  --danger: #f38ba8;
 }
 
 @theme inline {
@@ -16,4 +35,58 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-jetbrains-mono), monospace;
+}
+
+.panel {
+  border: 1px solid var(--surface);
+  background: color-mix(in oklab, var(--mantle) 88%, transparent);
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.input-field {
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  background: var(--base);
+  color: var(--text);
+}
+
+.btn {
+  border-radius: 10px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--base);
+}
+
+.btn-secondary {
+  border: 1px solid var(--surface);
+  background: var(--mantle);
+  color: var(--text);
+}
+
+.btn-success {
+  background: var(--success);
+  color: var(--base);
+}
+
+.muted-text {
+  color: var(--subtext);
+}
+
+.error-box {
+  border: 1px solid color-mix(in oklab, var(--danger) 45%, transparent);
+  background: color-mix(in oklab, var(--danger) 12%, transparent);
+  color: var(--danger);
+  border-radius: 10px;
 }
