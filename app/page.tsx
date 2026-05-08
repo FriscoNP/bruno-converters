@@ -1,13 +1,14 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { load as parseYaml } from "js-yaml";
 import insomniaToBruno from "@usebruno/converters/src/insomnia/insomnia-to-bruno";
 import openApiToBruno from "@usebruno/converters/src/openapi/openapi-to-bruno";
 import wsdlToBruno from "@usebruno/converters/src/wsdl/wsdl-to-bruno";
+import Header from "./components/Header";
+import FileDropZone from "./components/FileDropZone";
 
-type SourceType = "postman" | "insomnia" | "openapi" | "wsdl";
-type Theme = "light" | "dark";
+import type { SourceType, Theme } from "./types";
 
 const sourceOptions: Array<{ label: string; value: SourceType }> = [
   { label: "Postman collection", value: "postman" },
@@ -21,14 +22,34 @@ function readSpecObject(rawInput: string, sourceType: SourceType) {
     return rawInput;
   }
 
-  if (sourceType === "openapi") {
+  if (sourceType === "openapi" || sourceType === "insomnia") {
     try {
-      return JSON.parse(rawInput);
+      const parsed = JSON.parse(rawInput);
+      
+      // Handle Postman-wrapped format: { "opts": {}, "spec": {...} }
+      if (sourceType === "openapi" && parsed && typeof parsed === "object") {
+        if ("spec" in parsed && typeof parsed.spec === "object") {
+          return parsed.spec;
+        }
+        if ("api" in parsed && typeof parsed.api === "object") {
+          return parsed.api;
+        }
+      }
+      
+      return parsed;
     } catch {
       const parsedYaml = parseYaml(rawInput);
       if (!parsedYaml || typeof parsedYaml !== "object") {
         throw new Error("OpenAPI input must be valid JSON or YAML.");
       }
+      
+      // Handle Postman-wrapped YAML format
+      if (sourceType === "openapi" && parsedYaml && typeof parsedYaml === "object") {
+        if ("spec" in parsedYaml && typeof parsedYaml.spec === "object") {
+          return parsedYaml.spec;
+        }
+      }
+      
       return parsedYaml;
     }
   }
@@ -39,6 +60,24 @@ function readSpecObject(rawInput: string, sourceType: SourceType) {
     throw new Error(`${sourceType} input must be valid JSON.`);
   }
 }
+
+const DownloadIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" x2="12" y1="15" y2="3" />
+  </svg>
+);
 
 export default function Home() {
   const [sourceType, setSourceType] = useState<SourceType>("postman");
@@ -62,19 +101,20 @@ export default function Home() {
   const [error, setError] = useState<string>("");
   const [isConverting, setIsConverting] = useState<boolean>(false);
 
-  const canConvert = useMemo(() => rawInput.trim().length > 0, [rawInput]);
-
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     window.localStorage.setItem("theme", theme);
   }, [theme]);
 
-  const onFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const onFileChange = async (file: File | null, name: string) => {
     if (!file) {
+      setFileName("");
+      setRawInput("");
+      setOutput("");
+      setError("");
       return;
     }
-    setFileName(file.name);
+    setFileName(name);
     setRawInput(await file.text());
     setOutput("");
     setError("");
@@ -85,8 +125,19 @@ export default function Home() {
     setError("");
     setOutput("");
 
+    if (!rawInput || rawInput.trim().length === 0) {
+      setError("No file content loaded. Please upload a file first.");
+      setIsConverting(false);
+      return;
+    }
+
     try {
       const parsedInput = readSpecObject(rawInput, sourceType);
+
+      if (!parsedInput || typeof parsedInput !== "object") {
+        throw new Error("Invalid input: could not parse as JSON or YAML.");
+      }
+
       let converted: unknown;
 
       if (sourceType === "postman") {
@@ -108,11 +159,23 @@ export default function Home() {
 
         converted = await response.json();
       } else if (sourceType === "insomnia") {
-        converted = insomniaToBruno(parsedInput as object);
+        try {
+          converted = insomniaToBruno(parsedInput as object);
+        } catch (e) {
+          throw new Error(`Insomnia conversion failed: ${e instanceof Error ? e.message : "Invalid Insomnia collection"}`);
+        }
       } else if (sourceType === "openapi") {
-        converted = openApiToBruno(parsedInput as object);
+        try {
+          converted = openApiToBruno(parsedInput as object);
+        } catch (e) {
+          throw new Error(`OpenAPI conversion failed: ${e instanceof Error ? e.message : "Invalid OpenAPI specification"}`);
+        }
       } else {
-        converted = await wsdlToBruno(parsedInput as string);
+        try {
+          converted = await wsdlToBruno(parsedInput as string);
+        } catch (e) {
+          throw new Error(`WSDL conversion failed: ${e instanceof Error ? e.message : "Invalid WSDL"}`);
+        }
       }
 
       setOutput(JSON.stringify(converted, null, 2));
@@ -146,32 +209,31 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const handleReset = () => {
+    setRawInput("");
+    setFileName("");
+    setOutput("");
+    setError("");
+  };
+
+  const outputFileName = fileName
+    ? fileName.replace(/\.[^/.]+$/, "")
+    : `${sourceType}-input`;
+
   return (
     <div className="min-h-screen">
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 md:px-6 md:py-8">
-        <header className="panel flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold md:text-2xl">Bruno Converters</h1>
-            <p className="muted-text mt-1 text-sm">
-              Convert Postman, Insomnia, OpenAPI, and WSDL to Bruno collections.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? "Switch to Light" : "Switch to Dark"}
-          </button>
-        </header>
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 md:px-6">
+        <Header theme={theme} onThemeToggle={() => setTheme(theme === "dark" ? "light" : "dark")} />
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <div className="panel">
-            <label className="mb-2 block text-sm font-medium">Source type</label>
+        <div className="panel">
+          <div className="mb-5">
+            <label className="label">
+              Source type
+            </label>
             <select
               value={sourceType}
               onChange={(event) => setSourceType(event.target.value as SourceType)}
-              className="input-field w-full px-3 py-2 text-sm"
+              className="input-field w-full px-3 py-2.5"
             >
               {sourceOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -179,79 +241,116 @@ export default function Home() {
                 </option>
               ))}
             </select>
-
-            <label className="mt-4 mb-2 block text-sm font-medium">
-              Upload source file
-            </label>
-            <input
-              type="file"
-              onChange={onFileChange}
-              className="input-field w-full px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[var(--accent)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--base)] hover:file:opacity-90"
-            />
-
-            <label className="mt-4 mb-2 block text-sm font-medium">
-              Or paste source content
-            </label>
-            <textarea
-              value={rawInput}
-              onChange={(event) => setRawInput(event.target.value)}
-              placeholder="Paste JSON, YAML, or WSDL content here..."
-              className="input-field h-64 w-full px-3 py-2 text-xs leading-5"
-            />
-
-            <div className="mt-4 flex gap-3">
-              <button
-                type="button"
-                onClick={convertToBruno}
-                disabled={!canConvert || isConverting}
-                className="btn btn-primary"
-              >
-                {isConverting ? "Converting..." : "Convert to Bruno"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRawInput("");
-                  setFileName("");
-                  setOutput("");
-                  setError("");
-                }}
-                className="btn btn-secondary"
-              >
-                Reset
-              </button>
-            </div>
-
-            {error ? (
-              <p className="error-box mt-4 p-3 text-sm">
-                {error}
-              </p>
-            ) : null}
           </div>
 
-          <div className="panel">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Bruno collection output</h2>
+          <div className="mb-6">
+            <label className="label">Upload source file</label>
+            <FileDropZone fileName={fileName} onFileChange={onFileChange} />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={convertToBruno}
+              disabled={fileName.length === 0 || isConverting}
+              className="btn btn-primary"
+            >
+              {isConverting ? (
+                <>
+                  <span className="spinner" />
+                  Converting...
+                </>
+              ) : (
+                "Convert to Bruno"
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="btn btn-secondary"
+            >
+              Reset
+            </button>
+          </div>
+
+          {error ? (
+            <div className="error-box mt-5 animate-fade-in">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ flexShrink: 0, marginTop: "2px" }}
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" x2="12" y1="8" y2="12" />
+                <line x1="12" x2="12.01" y1="16" y2="16" />
+              </svg>
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => setError("")}
+                className="ml-auto opacity-70 hover:opacity-100"
+                aria-label="Dismiss error"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+          ) : null}
+
+          {output ? (
+            <div className="success-card mt-5 animate-fade-in">
+              <div className="success-card-icon">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div className="success-card-content">
+                <p className="success-card-title">Conversion complete!</p>
+                <p className="success-card-filename">{outputFileName}.bruno_collection.json</p>
+              </div>
               <button
                 type="button"
                 onClick={downloadOutput}
-                disabled={!output}
-                className="btn btn-success px-3 py-1.5 text-xs"
+                className="btn btn-success"
               >
-                Download JSON
+                <DownloadIcon />
+                Download
               </button>
             </div>
-            <textarea
-              value={output}
-              readOnly
-              placeholder="Converted Bruno collection JSON will appear here..."
-              className="input-field h-[28rem] w-full px-3 py-2 text-xs leading-5"
-            />
-          </div>
-        </section>
+          ) : null}
+        </div>
 
-        <footer className="muted-text py-2 text-center text-xs">
-          Built by FriscoNP using Next.js and Bruno Converters.
+        <footer className="muted-text py-4 text-center text-xs">
+          Built with Next.js and Bruno Converters
         </footer>
       </main>
     </div>
